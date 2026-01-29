@@ -5886,15 +5886,47 @@ function Library:SetTheme(Value)
 	end
 end
 
+-- REPLACED: Library:Destroy (also removes the floating OpenClose button)
 function Library:Destroy()
 	if Library.Window then
 		Library.Unloaded = true
+
+		-- destroy acrylic model if present
 		if Library.UseAcrylic then
-			Library.Window.AcrylicPaint.Model:Destroy()
+			pcall(function()
+				if Library.Window and Library.Window.AcrylicPaint and Library.Window.AcrylicPaint.Model then
+					Library.Window.AcrylicPaint.Model:Destroy()
+				end
+			end)
 		end
-		Creator.Disconnect()
-		Library.GUI:Destroy()
+
+		-- disconnect signals and remove main GUI
+		pcall(function() Creator.Disconnect() end)
+		pcall(function()
+			if Library.GUI and Library.GUI.Destroy then
+				Library.GUI:Destroy()
+			end
+		end)
+
+		Library.Window = nil
 	end
+
+	-- Remove the floating OpenClose ScreenGui if it exists in CoreGui (the draggable button)
+	pcall(function()
+		local coreGui = game:GetService("CoreGui")
+		local openCloseGui = coreGui:FindFirstChild("OpenClose")
+		if openCloseGui then
+			openCloseGui:Destroy()
+		end
+	end)
+
+	-- Also try to destroy the Close_ImageButton reference if still present
+	pcall(function()
+		if Close_ImageButton and Close_ImageButton.Parent then
+			Close_ImageButton:Destroy()
+		end
+		Close_ImageButton = nil
+	end)
 end
 
 function Library:ToggleAcrylic(Value)
