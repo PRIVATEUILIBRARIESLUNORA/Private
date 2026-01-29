@@ -1604,47 +1604,26 @@ Components.Tab = (function()
 			TabModule:SelectTab(TabIndex)
 		end)
 
-		-- patched: register tab and auto-show the first tab safely (no animated SelectTab call)
-TabModule.Containers[TabIndex] = Tab.ContainerFrame
-TabModule.Tabs[TabIndex] = Tab
+		TabModule.Containers[TabIndex] = Tab.ContainerFrame
+		TabModule.Tabs[TabIndex] = Tab
 
--- If this is the first tab created, mark it active and show its container immediately.
--- We avoid calling TabModule:SelectTab to prevent animation/timing side-effects.
-if TabModule.TabCount == 1 then
-    Tab.Selected = true
-    -- Use the Tab's transparency setter (exists on Tab) to set visual state
-    pcall(function() Tab.SetTransparency(0.89) end)
-    -- Ensure the container for the first tab is visible
-    pcall(function() Tab.ContainerFrame.Visible = true end)
-    -- Set selected index and update display label if available
-    TabModule.SelectedTab = TabIndex
-    pcall(function()
-        if TabModule.Window and TabModule.Window.TabDisplay then
-            TabModule.Window.TabDisplay.Text = Tab.Name
-        end
-        -- update selector motor to match current position (instant)
-        if TabModule.Window and TabModule.Window.SelectorPosMotor then
-            TabModule.Window.SelectorPosMotor:setGoal(Flipper.Instant.new(TabModule:GetCurrentTabPos()))
-        end
-    end)
-end
+		Tab.Container = Tab.ContainerFrame
+		Tab.ScrollFrame = Tab.Container
 
-Tab.Container = Tab.ContainerFrame
-Tab.ScrollFrame = Tab.Container
+		function Tab:AddSection(SectionTitle)
+			local Section = { Type = "Section" }
 
-function Tab:AddSection(SectionTitle)
-    local Section = { Type = "Section" }
+			local SectionFrame = Components.Section(SectionTitle, Tab.Container)
+			Section.Container = SectionFrame.Container
+			Section.ScrollFrame = Tab.Container
 
-    local SectionFrame = Components.Section(SectionTitle, Tab.Container)
-    Section.Container = SectionFrame.Container
-    Section.ScrollFrame = Tab.Container
+			setmetatable(Section, Elements)
+			return Section
+		end
 
-    setmetatable(Section, Elements)
-    return Section
-end
-
-setmetatable(Tab, Elements)
-return Tab
+		setmetatable(Tab, Elements)
+		return Tab
+	end
 
 	function TabModule:SelectTab(Tab)
 		local Window = TabModule.Window
@@ -3435,64 +3414,77 @@ ElementsTable.Dropdown = (function()
 	return Element
 end)()
 
--- REPLACEMENT: ElementsTable.StatusBox (no duplicate title/description; hides DescLabel when not provided)
+-- Replaces ElementsTable.StatusBox with a layout-friendly implementation
 ElementsTable.StatusBox = (function()
     local Element = {}
     Element.__index = Element
     Element.__type = "StatusBox"
 
     local New = Creator.New
+    local DEFAULT_HEIGHT = 180
 
     function Element:New(Idx, Config)
         Config = Config or {}
 
         local titleText   = Config.Title or "Status"
         local initialText = tostring(Config.Default or "")
-        local fixedHeight = Config.Height or 180  -- fixed size in pixels
+        local fixedHeight = Config.Height or DEFAULT_HEIGHT
 
+        -- Create the standard element (title + optional description)
         local StatusFrame = Components.Element(titleText, Config.Description, self.Container, false, Config)
 
-        -- If no description was provided, hide the DescLabel to avoid duplicated/overlapped text
+        -- If no description was given, hide the DescLabel to avoid duplicated text
         if (not Config.Description) or (type(Config.Description) == "string" and Config.Description:gsub("%s","") == "") then
             pcall(function() StatusFrame.DescLabel.Visible = false end)
         else
-            -- If a description exists, keep the default size but ensure it doesn't overlap
             pcall(function() StatusFrame.DescLabel.Size = UDim2.new(1, -170, 0, 14) end)
         end
 
-        -- Container (use Creator.New for consistent theming)
-        local container = New("Frame", {
-            Name = "StatusBox",
+        -- Content holder placed under the title/description that participates in layout
+        local contentHolder = New("Frame", {
+            Name = "StatusContentHolder",
             Parent = StatusFrame.Frame,
             BackgroundTransparency = 1,
-            Size = UDim2.new(1, 0, 0, fixedHeight),
-            ClipsDescendants = true,
+            Size = UDim2.new(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y, -- IMPORTANT: allow parent to size automatically
+            LayoutOrder = 2,
         }, {
-            New("UICorner", { CornerRadius = UDim.new(0, 8) })
+            New("UIListLayout", {
+                Padding = UDim.new(0, 6),
+                SortOrder = Enum.SortOrder.LayoutOrder,
+            }),
         })
 
-        -- Scrolling area for the content
+        -- Panel that contains the scrolling area with fixed visible height
+        local panel = New("Frame", {
+            Name = "StatusPanel",
+            Parent = contentHolder,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, 0, 0, fixedHeight),
+            LayoutOrder = 1,
+        })
+
+        -- ScrollingFrame used to display the long content
         local scroll = New("ScrollingFrame", {
-            Parent = container,
+            Parent = panel,
             Name = "StatusScroll",
             Active = true,
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
-            Position = UDim2.new(0, 8, 0, 30),
-            Size = UDim2.new(1, -16, 1, -38),
+            Position = UDim2.new(0, 8, 0, 0),
+            Size = UDim2.new(1, -16, 1, 0),
             CanvasSize = UDim2.new(0, 0, 0, 0),
             ScrollBarThickness = 6,
             AutomaticCanvasSize = Enum.AutomaticSize.None,
             ClipsDescendants = true,
         })
 
-        -- Content label (wrapped so vertical size is computed correctly)
         local content = New("TextLabel", {
             Parent = scroll,
             Name = "StatusContent",
             BackgroundTransparency = 1,
             Position = UDim2.new(0, 0, 0, 0),
-            Size = UDim2.new(1, 0, 0, 0), -- width = full scroll width; height computed
+            Size = UDim2.new(1, 0, 0, 0), -- height computed
             Font = Enum.Font.Code,
             TextWrapped = true,
             TextXAlignment = Enum.TextXAlignment.Left,
@@ -3510,41 +3502,19 @@ ElementsTable.StatusBox = (function()
                 RunService.Heartbeat:Wait()
                 scrollW = math.max(20, scroll.AbsoluteSize.X - padX)
             end
-
             local size = TextService:GetTextSize(txt, content.TextSize, content.Font, Vector2.new(scrollW, 1e6))
             local height = math.max(20, math.ceil(size.Y))
             content.Size = UDim2.new(0, scrollW, 0, height)
             scroll.CanvasSize = UDim2.new(0, 0, 0, content.AbsoluteSize.Y + padY)
         end
 
-        -- Position container below the Element's label area (title + optional description)
-        local function updateContainerPosition()
-            local offset = 0
-            pcall(function()
-                if StatusFrame.LabelHolder and StatusFrame.LabelHolder.AbsoluteSize and StatusFrame.LabelHolder.AbsoluteSize.Y > 0 then
-                    offset = StatusFrame.LabelHolder.AbsoluteSize.Y + 12
-                else
-                    -- fallback to TitleLabel height + some padding
-                    local tl = StatusFrame.TitleLabel
-                    offset = (tl and tl.AbsoluteSize and tl.AbsoluteSize.Y or 18) + 12
-                end
-            end)
-            container.Position = UDim2.fromOffset(0, offset)
-        end
-
-        -- Connect signals to keep sizes/positions up-to-date
+        -- Keep canvas updated when size or text changes
         Creator.AddSignal(scroll:GetPropertyChangedSignal("AbsoluteSize"), refreshCanvas)
         Creator.AddSignal(content:GetPropertyChangedSignal("Text"), refreshCanvas)
-        if StatusFrame.LabelHolder then
-            Creator.AddSignal(StatusFrame.LabelHolder:GetPropertyChangedSignal("AbsoluteSize"), updateContainerPosition)
-        end
-        Creator.AddSignal(StatusFrame.Frame:GetPropertyChangedSignal("AbsoluteSize"), updateContainerPosition)
 
-        -- initial refresh once sizes settle
         task.spawn(function()
             RunService.Heartbeat:Wait()
             refreshCanvas()
-            updateContainerPosition()
         end)
 
         local Status = {}
@@ -3603,6 +3573,7 @@ ElementsTable.StatusBox = (function()
 
     return Element
 end)()
+
 
 ElementsTable.Paragraph = (function()
 	local Paragraph = {}
