@@ -3414,8 +3414,7 @@ ElementsTable.Dropdown = (function()
 	return Element
 end)()
 
-
--- REPLACEMENT: ElementsTable.StatusBox (positioned below existing Element labels, no duplicate title)
+-- REPLACEMENT: ElementsTable.StatusBox (no duplicate title/description; hides DescLabel when not provided)
 ElementsTable.StatusBox = (function()
     local Element = {}
     Element.__index = Element
@@ -3431,11 +3430,16 @@ ElementsTable.StatusBox = (function()
         local fixedHeight = Config.Height or 180  -- fixed size in pixels
 
         local StatusFrame = Components.Element(titleText, Config.Description, self.Container, false, Config)
-        if StatusFrame.DescLabel then
-            StatusFrame.DescLabel.Size = UDim2.new(1, -170, 0, 14)
+
+        -- If no description was provided, hide the DescLabel to avoid duplicated/overlapped text
+        if (not Config.Description) or (type(Config.Description) == "string" and Config.Description:gsub("%s","") == "") then
+            pcall(function() StatusFrame.DescLabel.Visible = false end)
+        else
+            -- If a description exists, keep the default size but ensure it doesn't overlap
+            pcall(function() StatusFrame.DescLabel.Size = UDim2.new(1, -170, 0, 14) end)
         end
 
-        -- Container (use Creator.New so theming/defaults apply)
+        -- Container (use Creator.New for consistent theming)
         local container = New("Frame", {
             Name = "StatusBox",
             Parent = StatusFrame.Frame,
@@ -3461,7 +3465,7 @@ ElementsTable.StatusBox = (function()
             ClipsDescendants = true,
         })
 
-        -- Content label: wrap text so we can compute vertical height properly
+        -- Content label (wrapped so vertical size is computed correctly)
         local content = New("TextLabel", {
             Parent = scroll,
             Name = "StatusContent",
@@ -3477,7 +3481,6 @@ ElementsTable.StatusBox = (function()
             Text = initialText,
         })
 
-        -- Helper: recalc sizes based on TextService measurement and the scroll frame width
         local function refreshCanvas()
             local txt = tostring(content.Text or "")
             local padX, padY = 12, 10
@@ -3493,21 +3496,22 @@ ElementsTable.StatusBox = (function()
             scroll.CanvasSize = UDim2.new(0, 0, 0, content.AbsoluteSize.Y + padY)
         end
 
-        -- Position the container below the Element's label area (Title + Desc)
+        -- Position container below the Element's label area (title + optional description)
         local function updateContainerPosition()
             local offset = 0
-            -- prefer LabelHolder absolute height if available
             pcall(function()
-                if StatusFrame.LabelHolder and StatusFrame.LabelHolder.AbsoluteSize then
-                    offset = StatusFrame.LabelHolder.AbsoluteSize.Y + 16
+                if StatusFrame.LabelHolder and StatusFrame.LabelHolder.AbsoluteSize and StatusFrame.LabelHolder.AbsoluteSize.Y > 0 then
+                    offset = StatusFrame.LabelHolder.AbsoluteSize.Y + 12
                 else
-                    offset = 40
+                    -- fallback to TitleLabel height + some padding
+                    local tl = StatusFrame.TitleLabel
+                    offset = (tl and tl.AbsoluteSize and tl.AbsoluteSize.Y or 18) + 12
                 end
             end)
             container.Position = UDim2.fromOffset(0, offset)
         end
 
-        -- Ensure we recalc when sizes become available / change
+        -- Connect signals to keep sizes/positions up-to-date
         Creator.AddSignal(scroll:GetPropertyChangedSignal("AbsoluteSize"), refreshCanvas)
         Creator.AddSignal(content:GetPropertyChangedSignal("Text"), refreshCanvas)
         if StatusFrame.LabelHolder then
@@ -3515,7 +3519,7 @@ ElementsTable.StatusBox = (function()
         end
         Creator.AddSignal(StatusFrame.Frame:GetPropertyChangedSignal("AbsoluteSize"), updateContainerPosition)
 
-        -- initial refresh once sizes are stable
+        -- initial refresh once sizes settle
         task.spawn(function()
             RunService.Heartbeat:Wait()
             refreshCanvas()
