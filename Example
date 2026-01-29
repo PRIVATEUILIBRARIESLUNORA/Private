@@ -1604,26 +1604,33 @@ Components.Tab = (function()
 			TabModule:SelectTab(TabIndex)
 		end)
 
-		TabModule.Containers[TabIndex] = Tab.ContainerFrame
-		TabModule.Tabs[TabIndex] = Tab
+		-- patched: auto-select the first tab so content is visible by default
+TabModule.Containers[TabIndex] = Tab.ContainerFrame
+TabModule.Tabs[TabIndex] = Tab
 
-		Tab.Container = Tab.ContainerFrame
-		Tab.ScrollFrame = Tab.Container
+-- auto-select the first tab so UI shows content without manual SelectTab call
+if TabModule.TabCount == 1 then
+    -- protect with pcall in case SelectTab triggers layout ops early
+    pcall(function() TabModule:SelectTab(1) end)
+end
 
-		function Tab:AddSection(SectionTitle)
-			local Section = { Type = "Section" }
+Tab.Container = Tab.ContainerFrame
+Tab.ScrollFrame = Tab.Container
 
-			local SectionFrame = Components.Section(SectionTitle, Tab.Container)
-			Section.Container = SectionFrame.Container
-			Section.ScrollFrame = Tab.Container
+function Tab:AddSection(SectionTitle)
+    local Section = { Type = "Section" }
 
-			setmetatable(Section, Elements)
-			return Section
-		end
+    local SectionFrame = Components.Section(SectionTitle, Tab.Container)
+    Section.Container = SectionFrame.Container
+    Section.ScrollFrame = Tab.Container
 
-		setmetatable(Tab, Elements)
-		return Tab
-	end
+    setmetatable(Section, Elements)
+    return Section
+end
+
+setmetatable(Tab, Elements)
+return Tab
+
 
 	function TabModule:SelectTab(Tab)
 		local Window = TabModule.Window
