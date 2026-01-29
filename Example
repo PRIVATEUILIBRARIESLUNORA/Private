@@ -3414,85 +3414,108 @@ ElementsTable.Dropdown = (function()
 	return Element
 end)()
 
--- REPLACE the existing ElementsTable.StatusBox block with this implementation
+-- REPLACEMENT: ElementsTable.StatusBox
 ElementsTable.StatusBox = (function()
     local Element = {}
     Element.__index = Element
     Element.__type = "StatusBox"
+
+    local New = Creator.New
 
     function Element:New(Idx, Config)
         Config = Config or {}
 
         local titleText   = Config.Title or "Status"
         local initialText = tostring(Config.Default or "")
-        local fixedHeight = Config.Height or 180  -- fixed size
+        local fixedHeight = Config.Height or 180  -- fixed size in pixels
 
         local StatusFrame = Components.Element(titleText, Config.Description, self.Container, false, Config)
         if StatusFrame.DescLabel then
             StatusFrame.DescLabel.Size = UDim2.new(1, -170, 0, 14)
         end
 
-        local container = Instance.new("Frame")
-        container.Name = "StatusBox"
-        container.Parent = StatusFrame.Frame
-        container.BackgroundColor3 = _G.Primary
-        container.BackgroundTransparency = 0.8
-        container.Size = UDim2.new(1, 0, 0, fixedHeight)
-        container.ClipsDescendants = true
+        -- Container (use Creator.New so theming/defaults apply)
+        local container = New("Frame", {
+            Name = "StatusBox",
+            Parent = StatusFrame.Frame,
+            BackgroundTransparency = 1,
+            Size = UDim2.new(1, 0, 0, fixedHeight),
+            ClipsDescendants = true,
+        }, {
+            New("UICorner", { CornerRadius = UDim.new(0, 8) })
+        })
 
-        local corner = Instance.new("UICorner")
-        corner.CornerRadius = UDim.new(0, 8)
-        corner.Parent = container
+        -- Title inside the status container (kept simple and consistent)
+        local title = New("TextLabel", {
+            Parent = container,
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, 10, 0, 6),
+            Size = UDim2.new(1, -20, 0, 18),
+            Font = Enum.Font.GothamSemibold,
+            Text = titleText,
+            TextColor3 = Color3.fromRGB(245, 245, 245),
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left,
+        })
 
-        local title = Instance.new("TextLabel")
-        title.Parent = container
-        title.BackgroundTransparency = 1
-        title.Position = UDim2.new(0, 10, 0, 6)
-        title.Size = UDim2.new(1, -20, 0, 18)
-        title.Font = Enum.Font.GothamSemibold
-        title.Text = titleText
-        title.TextColor3 = Color3.fromRGB(245, 245, 245)
-        title.TextSize = 12
-        title.TextXAlignment = Enum.TextXAlignment.Left
+        -- Scrolling area for the content
+        local scroll = New("ScrollingFrame", {
+            Parent = container,
+            Name = "StatusScroll",
+            Active = true,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            Position = UDim2.new(0, 8, 0, 30),
+            Size = UDim2.new(1, -16, 1, -38),
+            CanvasSize = UDim2.new(0, 0, 0, 0),
+            ScrollBarThickness = 6,
+            AutomaticCanvasSize = Enum.AutomaticSize.None,
+            ClipsDescendants = true,
+        })
 
-        local scroll = Instance.new("ScrollingFrame")
-        scroll.Parent = container
-        scroll.Name = "StatusScroll"
-        scroll.Active = true
-        scroll.BackgroundTransparency = 1
-        scroll.BorderSizePixel = 0
-        scroll.Position = UDim2.new(0, 8, 0, 30)
-        scroll.Size = UDim2.new(1, -16, 1, -38)
-        scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-        scroll.ScrollBarThickness = 6
-        scroll.AutomaticCanvasSize = Enum.AutomaticSize.None
-        scroll.ClipsDescendants = true
+        -- Content label: wrap text so we can compute vertical height properly
+        local content = New("TextLabel", {
+            Parent = scroll,
+            Name = "StatusContent",
+            BackgroundTransparency = 1,
+            Position = UDim2.new(0, 0, 0, 0),
+            Size = UDim2.new(1, 0, 0, 0), -- width = full scroll width; height computed
+            Font = Enum.Font.Code,
+            TextWrapped = true,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Top,
+            TextColor3 = Config.TextColor or Color3.fromRGB(230, 230, 230),
+            TextSize = Config.TextSize or 15,
+            Text = initialText,
+        })
 
-        local content = Instance.new("TextLabel")
-        content.Parent = scroll
-        content.Name = "StatusContent"
-        content.BackgroundTransparency = 1
-        content.Position = UDim2.new(0, 0, 0, 0)
-        content.Size = UDim2.new(0, 0, 0, 0)
-        content.Font = Enum.Font.Code
-        content.TextWrapped = false -- horizontal scrolling enabled
-        content.TextXAlignment = Enum.TextXAlignment.Left
-        content.TextYAlignment = Enum.TextYAlignment.Top
-        content.TextColor3 = Config.TextColor or Color3.fromRGB(230, 230, 230)
-        content.TextSize = Config.TextSize or 15
-        content.Text = initialText
-
+        -- Helper: recalc sizes based on TextService measurement and the scroll frame width
         local function refreshCanvas()
             local txt = tostring(content.Text or "")
-            local size = TextService:GetTextSize(txt, content.TextSize, content.Font, Vector2.new(1e6, 1e6))
-            local padX, padY = 10, 6
-            content.Size = UDim2.new(0, math.max(200, math.ceil(size.X)), 0, math.max(30, math.ceil(size.Y)))
-            scroll.CanvasSize = UDim2.new(0, content.AbsoluteSize.X + padX, 0, content.AbsoluteSize.Y + padY)
+            local padX, padY = 12, 10
+            local scrollW = math.max(20, scroll.AbsoluteSize.X - padX)
+            if scrollW <= 0 then
+                -- if AbsoluteSize not ready, wait until next heartbeat and retry
+                RunService.Heartbeat:Wait()
+                scrollW = math.max(20, scroll.AbsoluteSize.X - padX)
+            end
+
+            local size = TextService:GetTextSize(txt, content.TextSize, content.Font, Vector2.new(scrollW, 1e6))
+            local height = math.max(20, math.ceil(size.Y))
+            content.Size = UDim2.new(0, scrollW, 0, height)
+            -- vertical canvas size only (content width fits scroll)
+            scroll.CanvasSize = UDim2.new(0, 0, 0, content.AbsoluteSize.Y + padY)
         end
 
-        -- ensure absolute sizes stabilize first
-        RunService.Heartbeat:Wait()
-        refreshCanvas()
+        -- Ensure we recalc when sizes become available / change
+        Creator.AddSignal(scroll:GetPropertyChangedSignal("AbsoluteSize"), refreshCanvas)
+        Creator.AddSignal(content:GetPropertyChangedSignal("Text"), refreshCanvas)
+
+        -- initial refresh once sizes are stable
+        task.spawn(function()
+            RunService.Heartbeat:Wait()
+            refreshCanvas()
+        end)
 
         local Status = {}
         Status.SetTitle = StatusFrame.SetTitle
@@ -3512,10 +3535,8 @@ ElementsTable.StatusBox = (function()
             refreshCanvas()
             RunService.Heartbeat:Wait()
             pcall(function()
-                scroll.CanvasPosition = Vector2.new(
-                    math.max(0, content.AbsoluteSize.X - scroll.AbsoluteSize.X),
-                    math.max(0, content.AbsoluteSize.Y - scroll.AbsoluteSize.Y)
-                )
+                -- scroll to bottom after append
+                scroll.CanvasPosition = Vector2.new(0, math.max(0, content.AbsoluteSize.Y - scroll.AbsoluteSize.Y))
             end)
         end
 
@@ -3540,19 +3561,21 @@ ElementsTable.StatusBox = (function()
             Library.Options[Idx] = nil
         end
 
+        -- push to library options and return
+        Library.Options[Idx] = Status
+
+        -- set initial text (already set on creation if provided)
         if initialText ~= "" then
             Status:Set(initialText)
         else
             refreshCanvas()
         end
 
-        Library.Options[Idx] = Status
         return Status
     end
 
     return Element
 end)()
-
 
 ElementsTable.Paragraph = (function()
 	local Paragraph = {}
