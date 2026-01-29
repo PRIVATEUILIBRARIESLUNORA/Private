@@ -2688,7 +2688,7 @@ Components.Window = (function()
         })
 
         -- after animation hide the root so it's not interactive
-        task.delay(0.65, function()
+        task.delay(1.5, function()
             if Window.Minimized then
                 Window.Root.Visible = false
             end
