@@ -1604,14 +1604,29 @@ Components.Tab = (function()
 			TabModule:SelectTab(TabIndex)
 		end)
 
-		-- patched: auto-select the first tab so content is visible by default
+		-- patched: register tab and auto-show the first tab safely (no animated SelectTab call)
 TabModule.Containers[TabIndex] = Tab.ContainerFrame
 TabModule.Tabs[TabIndex] = Tab
 
--- auto-select the first tab so UI shows content without manual SelectTab call
+-- If this is the first tab created, mark it active and show its container immediately.
+-- We avoid calling TabModule:SelectTab to prevent animation/timing side-effects.
 if TabModule.TabCount == 1 then
-    -- protect with pcall in case SelectTab triggers layout ops early
-    pcall(function() TabModule:SelectTab(1) end)
+    Tab.Selected = true
+    -- Use the Tab's transparency setter (exists on Tab) to set visual state
+    pcall(function() Tab.SetTransparency(0.89) end)
+    -- Ensure the container for the first tab is visible
+    pcall(function() Tab.ContainerFrame.Visible = true end)
+    -- Set selected index and update display label if available
+    TabModule.SelectedTab = TabIndex
+    pcall(function()
+        if TabModule.Window and TabModule.Window.TabDisplay then
+            TabModule.Window.TabDisplay.Text = Tab.Name
+        end
+        -- update selector motor to match current position (instant)
+        if TabModule.Window and TabModule.Window.SelectorPosMotor then
+            TabModule.Window.SelectorPosMotor:setGoal(Flipper.Instant.new(TabModule:GetCurrentTabPos()))
+        end
+    end)
 end
 
 Tab.Container = Tab.ContainerFrame
@@ -1630,7 +1645,6 @@ end
 
 setmetatable(Tab, Elements)
 return Tab
-
 
 	function TabModule:SelectTab(Tab)
 		local Window = TabModule.Window
